@@ -1,0 +1,1475 @@
+#include "collision.h"
+#include "forces.h"
+#include "list.h"
+#include "polygon.h"
+#include "sdl_wrapper.h"
+#include "state.h"
+#include "vector.h"
+#include <SDL2/SDL.h>
+#include <SDL2/SDL_mixer.h>
+#include <assert.h>
+#include <math.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+
+// movement flags
+bool moon_run = false;
+bool star_run = false;
+bool moon_left = false;
+bool moon_right = false;
+bool star_left = false;
+bool star_right = false;
+
+// transition screen flags
+bool won = false;
+bool lost = false;
+bool welcome = true;
+
+// level flags
+bool curr_level_1 = false;
+bool curr_level_2 = false;
+bool curr_level_3 = false;
+
+// miscellaneous global variables
+int background_music_channel;
+double won_time = 0;
+bool left_facing = false;
+
+// window constants
+const vector_t WINDOW_MIN = {.x = 0, .y = 0};
+const vector_t WINDOW_MAX = {.x = 1000, .y = 500};
+const vector_t WINDOW_CENTER = {.x = 500, .y = 250};
+const vector_t WINDOW_BODY_MAX = {.x = 950, .y = 450};
+const vector_t WINDOW_BODY_MIN = {.x = 50, .y = 50};
+const vector_t WINDOW_TOP_LEFT = {.x = 0, .y = 500};
+const vector_t WINDOW_BOTTOM_RIGHT = {.x = 1000, .y = 0};
+const size_t NUM_ROWS = 3;
+const size_t NUM_COLUMNS = 10;
+
+// jump global variables
+bool up_star = false;
+bool up_moon = false;
+const rgb_color_t PLAYER_COLOR = {1.0, 1.0, 1.0};
+const rgb_color_t STAR_COLOR = {1.0, 0.9, 0.1};
+const vector_t NEGATIVE_STAR = {-60, 0};
+const vector_t POSITIVE_STAR = {60, 0};
+const vector_t JUMP_VEL = {0.0, 140.0};
+
+// gravity constants
+const float PI = M_PI;
+const double G = 6.67430e-10;
+const double EARTH_MASS = 5.972e24;
+const double EARTH_RADIUS = -(6.378e6);
+const size_t CHAR_MALLOC = 12;
+const rgb_color_t PLANET_COLOR = {1.0, 1.0, 1.0};
+
+// planet constants
+const double PLANET_LENGTH = 5;
+const double PLANET_HEIGHT = 5;
+
+// platform constants
+const double PLAT_LENGTH = 50;
+const double PLAT_HEIGHT = 10;
+const double PLAT_MASS = 60;
+const double PLAT_INIT_LOC = 200;
+const double PLAT_INCREMENT = 70;
+const rgb_color_t PLAT_COLOR = {1.0, 1.0, 1.0};
+const double ACCELERATION = 100.0;
+const rgb_color_t FAN_COLOR = {1.0, 1.0, 1.0};
+const double PLAYER_MASS = 50;
+
+// player constants
+const size_t STAR_PTS = 10;
+const double PLAYER_HEIGHT = 68.5;
+const double PLAYER_LENGTH = 50;
+const vector_t PLAYER_INIT_VEL = {0, -5};
+
+// rocket constants
+const double ROCKET_LEN = 50;
+const double ROCKET_HT = ROCKET_LEN * 543 / 460;
+
+// projectile constants
+const double PROJECTILE_LENGTH = 8;
+const double PROJECTILE_HEIGHT = 15;
+const double PROJECTILE_MASS = 2;
+const double PROJECTILE_ACCELERATION = 30;
+const vector_t PROJECTILE_VELOCITY = {.x = -60, .y = 0};
+const rgb_color_t MAIN_BODY_COLOR = {1.0, 0.6, 0.9};
+const size_t INVADER_POS_INCREMENT = 10;
+const size_t INVADER_INCREMENT = 15;
+const double INVADER_MASS = 10.0;
+const rgb_color_t INVADER_COLOR = {0.0, 0.0, 0.0};
+const size_t CREATE_PROJ = 300;
+const size_t LIST_INIT_SIZE = 10;
+
+// button constants
+const double BUTTON_LENGTH = 80.0;
+const double BUTTON_HEIGHT = 50.0;
+const size_t BUTTON_Y_MULT = 100;
+const size_t BUTTON_Y_INC = 50;
+const size_t BUTTON_MASS = 60;
+const rgb_color_t BUTTON_COLOR = {1.0, 1.0, 1.0};
+
+// fan constants
+const double FAN_LENGTH = 100;
+const double FAN_HEIGHT = FAN_LENGTH * 380 / 620;
+const vector_t ROCKET_IMPULSE = {0, 200};
+
+// time & score constants
+const double BEST_TIME = 46;
+const double MED_TIME = 91;
+const double BAD_TIME = 301;
+const double BEST_TIME_SCORE = 36;
+const double MED_TIME_SCORE = 18;
+const double BAD_TIME_SCORE = 9;
+
+// win screen (text) constants
+const rgb_color_t WHITE_TXT = {1.0, 1.0, 1.0};
+const double TEXT1_X = 250;
+const double TEXT2_X = 700;
+const double TEXT3_X = 300;
+const double TEXT4_X = 600;
+
+const double TEXT_INLINE1 = 200;
+const double TEXT_INLINE2 = 350;
+
+const double TEXT1_WIDTH = 400;
+const double TEXT2_WIDTH = 50;
+const double TEXT3_WIDTH = 250;
+const double TEXT4_WIDTH = 125;
+
+const double TEXT_HT = 100;
+
+// timer constants
+const rgb_color_t RED_TXT = {1.0, 0, 0};
+const rgb_color_t YELLOW_TXT = {1.0, 1.0, 0};
+const rgb_color_t GREEN_TXT = {0, 1.0, 0};
+
+// trampoline constants
+const double TRAMPOLINE_LENGTH = 50;
+const double TRAMPOLINE_HEIGHT = 10;
+const double TRAMP_LENGTH = 100;
+const double TRAMP_HEIGHT = TRAMP_LENGTH * 402 / 657;
+
+// sprite constants
+const double SPRITE_LENGTH = 50.0;
+const double SPRITE_HEIGHT = SPRITE_LENGTH * 585 / 427;
+const double SPRITE_INV_HEIGHT = SPRITE_LENGTH * 519 / 481;
+
+// invader constants
+const double INVADER_LENGTH = 48;
+const double INVADER_HEIGHT = 52;
+
+// wall constants
+const double WALL_LENGTH = 1;
+const double WALL_HEIGHT = 500;
+
+// gem constants
+const double GEM_LENGTH = 24.5;
+const double GEM_HEIGHT = 25.5;
+const vector_t GEM_DIM = {20.0, 20.0 * 510 / 489};
+const double GEM_PTS = 8;
+
+// miscellaneous constants
+const vector_t WIN_CENTROID = {.x = 1500, .y = 1000};
+const double PT_INCREMENT = 2;
+const size_t MIN_SEC = 60;
+const size_t SEC_2 = 10;
+const int FONT_SIZE = 30;
+const double START_GRAV_Y_VEL = 5;
+const double CHECK_CENTROID_COL = 18;
+const double CHECK_CENTROID_COL2 = 35;
+const size_t SDL_TEXT_X = 948;
+const size_t SDL_TEXT_Y = 464;
+const size_t SDL_WIDTH = 50;
+const size_t SDL_HEIGHT = 30;
+const size_t SDL_TEXTURE_IDX = 6;
+
+// level 1 constants
+double level1_gemy_list[4][2] = {{325, 170}, {675, 370}, {480, 420}, {80, 425}};
+double level1_gemb_list[4][2] = {
+    {325, 370}, {675, 170}, {520, 420}, {120, 425}};
+size_t level1_sizes[4] = {10, 1, 1,
+                          1}; //(# platforms, # trampolines, # fans, # invaders)
+double level1_player_list[2][2] = {{490, 100}, {510, 100}};
+double level1_invader_list[3][2] = {{900, 175}};
+double level1_fan_list[3][2] = {{850, 200}};
+double level1_rocket_list[2][2] = {{30, 455}, {950, 455}};
+double level1_trampoline_list[3][2] = {{100, 250}};
+double level1_platform_list[30][3] = {
+    {500.0, 50.0, 50.0},  {325.0, 125.0, 50.0}, {675.0, 125.0, 50.0},
+    {175.0, 200.0, 50.0}, {775.0, 250.0, 50.0}, {325.0, 350.0, 50.0},
+    {675.0, 350.0, 50.0}, {500.0, 400.0, 50.0}, {30.0, 425.0, 50.0},
+    {950.0, 425.0, 50.0}};
+double level1_constants[2] = {-(6.378e6), 5.972e24};
+
+// level 2 constants
+double level2_gemy_list[4][2] = {
+    {305, 250}, {155, 375}, {695, 250}, {480, 375}};
+double level2_gemb_list[4][2] = {
+    {345, 250}, {195, 375}, {655, 250}, {520, 375}};
+size_t level2_sizes[4] = {4, 2, 3,
+                          0}; //(# platforms, # trampolines, # fans, # invaders)
+double level2_player_list[2][2] = {{100, 100}, {150, 100}};
+double level2_invader_list[3][2] = {};
+double level2_fan_list[3][2] = {{150, 225}, {500, 225}, {850, 225}};
+double level2_rocket_list[2][2] = {{50, 455}, {950, 455}};
+double level2_trampoline_list[3][2] = {{350, 75}, {700, 75}};
+double level2_platform_list[30][3] = {{745.0, 375.0, 50.0},
+                                      {395.0, 375.0, 50.0},
+                                      {50.0, 425.0, 50.0},
+                                      {950.0, 425.0, 50.0}};
+double level2_constants[2] = {-(6.378e6), 5.972e24};
+
+// level 3 constants
+double level3_gemy_list[4][2] = {{80, 175}, {280, 275}, {680, 475}, {480, 375}};
+double level3_gemb_list[4][2] = {
+    {120, 175}, {320, 275}, {720, 475}, {520, 375}};
+size_t level3_sizes[4] = {6, 1, 3,
+                          4}; //(# platforms, # trampolines, # fans, # invaders)
+double level3_player_list[2][2] = {{500, 125}, {550, 125}};
+double level3_invader_list[4][2] = {
+    {850, 50}, {850, 150}, {850, 250}, {850, 350}};
+double level3_fan_list[3][2] = {{200, 80}, {400, 150}, {600, 250}};
+double level3_rocket_list[2][2] = {{50, 455}, {950, 455}};
+double level3_trampoline_list[3][2] = {{775, 50}};
+double level3_platform_list[30][3] = {
+    {100.0, 80.0, 50.0},  {300.0, 150.0, 50.0}, {500.0, 250.0, 50.0},
+    {700.0, 350.0, 50.0}, {50.0, 425.0, 50.0},  {950.0, 425.0, 50.0}};
+double level3_constants[2] = {-(6.378e6), 5.972e24};
+
+typedef struct state {
+  // index 0 gravity bar
+  // index 1 is stargirl
+  // index 2 is moonboy
+  // rest of indices are platforms
+  scene_t *grav_player_list;
+  scene_t *button_list;
+  double time;
+  size_t counter;
+  list_t *images;
+  list_t *texts;
+  list_t *music;
+  list_t *sound_effects;
+} state_t;
+
+// make objects
+
+list_t *make_rectangle(double length, double height) {
+  // make list & add vertices of rectangle
+  list_t *vertices = list_init(4, free);
+  assert(vertices != NULL);
+
+  vector_t *pt1 = malloc(sizeof(vector_t));
+  *pt1 = (vector_t){length / 2, height / 2};
+  list_add(vertices, pt1);
+
+  vector_t *pt2 = malloc(sizeof(vector_t));
+  *pt2 = (vector_t){(-1) * (length / 2), height / 2};
+  list_add(vertices, pt2);
+
+  vector_t *pt3 = malloc(sizeof(vector_t));
+  *pt3 = (vector_t){(-1) * (length / 2), (-1) * (height / 2)};
+  list_add(vertices, pt3);
+
+  vector_t *pt4 = malloc(sizeof(vector_t));
+  *pt4 = (vector_t){length / 2, (-1) * (height / 2)};
+  list_add(vertices, pt4);
+
+  return vertices;
+}
+
+body_t *make_button(size_t center_x, size_t center_y, char *info) {
+  body_t *button =
+      body_init_with_info(make_rectangle(BUTTON_LENGTH, BUTTON_HEIGHT),
+                          BUTTON_MASS, BUTTON_COLOR, info, NULL);
+  body_set_centroid(button, (vector_t){center_x, center_y});
+  return button;
+}
+
+body_t *make_planet(double center_x, double center_y, double mass) {
+  body_t *planet =
+      body_init_with_info(make_rectangle(PLANET_LENGTH, PLANET_HEIGHT), mass,
+                          PLANET_COLOR, "planet", NULL);
+  body_set_centroid(planet, (vector_t){center_x, center_y});
+  return planet;
+}
+
+body_t *make_player(state_t *state, double center_x, double center_y,
+                    char *version) {
+  body_t *player = body_init_with_prev_grav_info(
+      false, false, make_rectangle(PLAYER_LENGTH, PLAYER_HEIGHT), PLAYER_MASS,
+      PLAYER_COLOR, version, NULL);
+  body_set_centroid(player, (vector_t){center_x, center_y});
+  body_set_velocity(player, PLAYER_INIT_VEL);
+  // creating gravity with the player and planet
+  create_newtonian_gravity(state->grav_player_list, G,
+                           scene_get_body(state->grav_player_list, 0), player);
+  return player;
+}
+
+body_t *make_invader(double center_x, double center_y) {
+  body_t *invader =
+      body_init_with_info(make_rectangle(INVADER_LENGTH, INVADER_HEIGHT),
+                          INVADER_MASS, INVADER_COLOR, "invader", NULL);
+  body_set_centroid(invader, (vector_t){center_x, center_y});
+  return invader;
+}
+
+body_t *make_wall(double center_x, double center_y) {
+  body_t *wall = body_init_with_info(make_rectangle(WALL_LENGTH, WALL_HEIGHT),
+                                     INFINITY, INVADER_COLOR, "wall", NULL);
+  body_set_centroid(wall, (vector_t){center_x, center_y});
+  return wall;
+}
+
+body_t *make_platform(double center_x, double center_y, double length) {
+  body_t *platform = body_init_with_prev_grav_info(
+      false, false, make_rectangle(length, PLAT_HEIGHT), PLAT_MASS, PLAT_COLOR,
+      "platform", NULL);
+  body_set_centroid(platform, (vector_t){center_x, center_y});
+  return platform;
+}
+
+body_t *make_floor(state_t *state, double center_x, double center_y,
+                   double length) {
+  body_t *platform = body_init_with_prev_grav_info(
+      false, false, make_rectangle(length, PLAT_HEIGHT), PLAT_MASS, PLAT_COLOR,
+      "floor", NULL);
+  body_set_centroid(platform, (vector_t){center_x, center_y});
+  return platform;
+}
+
+body_t *make_trampoline(state_t *state, double center_x, double center_y) {
+  body_t *trampoline =
+      body_init_with_info(make_rectangle(TRAMPOLINE_LENGTH, TRAMPOLINE_HEIGHT),
+                          INFINITY, FAN_COLOR, "trampoline", NULL);
+  body_set_centroid(trampoline, (vector_t){center_x, center_y});
+
+  // add trampoline collisions
+  double elasticity = 1.5;
+
+  create_physics_collision(state->grav_player_list, elasticity,
+                           scene_get_body(state->grav_player_list, 1),
+                           trampoline);
+  create_physics_collision(state->grav_player_list, elasticity, trampoline,
+                           scene_get_body(state->grav_player_list, 1));
+
+  create_physics_collision(state->grav_player_list, elasticity,
+                           scene_get_body(state->grav_player_list, 2),
+                           trampoline);
+  create_physics_collision(state->grav_player_list, elasticity, trampoline,
+                           scene_get_body(state->grav_player_list, 2));
+
+  return trampoline;
+}
+
+body_t *make_fan(double center_x, double center_y) {
+  body_t *fan = body_init_with_info(make_rectangle(FAN_LENGTH, FAN_HEIGHT / 2),
+                                    INFINITY, FAN_COLOR, "fan", NULL);
+  body_set_centroid(fan, (vector_t){center_x, center_y});
+  return fan;
+}
+
+body_t *make_rocket(double center_x, double center_y, char *version) {
+  body_t *rocket = body_init_with_info(make_rectangle(ROCKET_LEN, ROCKET_HT),
+                                       20, FAN_COLOR, version, NULL);
+  body_set_centroid(rocket, (vector_t){center_x, center_y});
+  return rocket;
+}
+
+void make_star_projectile(state_t *state, vector_t vel) {
+  // initialize projectile
+  body_t *girl = scene_get_body(state->grav_player_list, 1);
+  vector_t curr = body_get_centroid(girl);
+  body_t *proj =
+      body_init_with_info(make_rectangle(PROJECTILE_LENGTH, PROJECTILE_HEIGHT),
+                          PROJECTILE_MASS, STAR_COLOR, "star projectile", NULL);
+  if (vel.x < 0) {
+    body_set_centroid(proj, (vector_t){curr.x - (SPRITE_LENGTH / 2), curr.y});
+  } else {
+    body_set_centroid(proj, (vector_t){curr.x + (SPRITE_LENGTH / 2), curr.y});
+  }
+
+  scene_add_body(state->grav_player_list, proj);
+  body_set_velocity(proj, vel);
+
+  // create destructive collisions
+  for (size_t i = 0; i < scene_bodies(state->grav_player_list); i++) {
+    if (strcmp(body_get_info(scene_get_body(state->grav_player_list, i)),
+               "platform") != 0) {
+      if (strcmp((((char *)body_get_info(
+                     scene_get_body(state->grav_player_list, i)))),
+                 "invader") == 0 ||
+          strcmp(body_get_info(scene_get_body(state->grav_player_list, i)),
+                 "projectile") == 0) {
+        create_destructive_collision(
+            state->grav_player_list, proj,
+            scene_get_body(state->grav_player_list, i));
+      }
+      if (strcmp((((char *)body_get_info( // added
+                     scene_get_body(state->grav_player_list, i)))),
+                 "wall") == 0) {
+        create_half_destructive_collision(
+            state->grav_player_list, 0, proj,
+            scene_get_body(state->grav_player_list, i));
+      }
+    }
+  }
+}
+
+void make_projectile(state_t *state) {
+  for (size_t i = 0; i < scene_bodies(state->grav_player_list); i++) {
+    if (strcmp(body_get_info(scene_get_body(state->grav_player_list, i)),
+               "platform") != 0) {
+      if (strcmp((((char *)body_get_info(
+                     scene_get_body(state->grav_player_list, i)))),
+                 "invader") == 0) {
+        body_t *invader = scene_get_body(state->grav_player_list, i);
+        vector_t curr = body_get_centroid(invader);
+        body_t *proj = body_init_with_info(
+            make_rectangle(PROJECTILE_LENGTH, PROJECTILE_HEIGHT),
+            PROJECTILE_MASS, MAIN_BODY_COLOR, "projectile", NULL);
+        body_set_centroid(proj, (vector_t){curr.x, curr.y});
+
+        scene_add_body(state->grav_player_list, proj);
+        body_set_velocity(proj, PROJECTILE_VELOCITY);
+        create_destructive_collision(
+            state->grav_player_list, proj,
+            scene_get_body(state->grav_player_list, 1));
+        create_shield_collision(state->grav_player_list, proj,
+                                scene_get_body(state->grav_player_list, 2));
+        for (size_t i = 0; i < scene_bodies(state->grav_player_list); i++) {
+          if (strcmp((((char *)body_get_info(
+                         scene_get_body(state->grav_player_list, i)))),
+                     "wall") == 0) {
+            create_half_destructive_collision(
+                state->grav_player_list, 0.0, proj,
+                scene_get_body(state->grav_player_list, i));
+          }
+          if (strcmp(body_get_info(scene_get_body(state->grav_player_list, i)),
+                     "star projectile") == 0) {
+            create_destructive_collision(
+                state->grav_player_list, proj,
+                scene_get_body(state->grav_player_list, i));
+          }
+        }
+      }
+    }
+  }
+}
+
+body_t *make_blue_gem(state_t *state, double center_x, double center_y) {
+  body_t *blue_gem = body_init_with_info(make_rectangle(GEM_LENGTH, GEM_HEIGHT),
+                                         2.0, INVADER_COLOR, "blue_gem", NULL);
+  body_set_centroid(blue_gem, (vector_t){center_x, center_y});
+  create_half_destructive_collision(state->grav_player_list, 0.0, blue_gem,
+                                    scene_get_body(state->grav_player_list, 2));
+  return blue_gem;
+}
+
+void spawn_blue_gems(state_t *state, double level_b[4][2]) {
+  for (size_t i = 0; i < 4; i++) {
+    scene_add_body(state->grav_player_list,
+                   make_blue_gem(state, level_b[i][0], level_b[i][1]));
+  }
+}
+
+body_t *make_yellow_gem(state_t *state, double center_x, double center_y) {
+  body_t *yellow_gem =
+      body_init_with_info(make_rectangle(GEM_LENGTH, GEM_HEIGHT), 2.0,
+                          INVADER_COLOR, "yellow_gem", NULL);
+  body_set_centroid(yellow_gem, (vector_t){center_x, center_y});
+  create_half_destructive_collision(state->grav_player_list, 0.0, yellow_gem,
+                                    scene_get_body(state->grav_player_list, 1));
+  return yellow_gem;
+}
+
+void spawn_yellow_gems(state_t *state, double level_y[4][2]) {
+  for (size_t i = 0; i < 4; i++) {
+    scene_add_body(state->grav_player_list,
+                   make_yellow_gem(state, level_y[i][0], level_y[i][1]));
+  }
+}
+
+void hitting_sides(state_t *state, body_t *body_player) {
+  if (body_get_centroid(body_player).x + (SPRITE_LENGTH / 2) >= WINDOW_MAX.x) {
+    body_set_centroid(body_player,
+                      (vector_t){.x = WINDOW_MAX.x - (SPRITE_LENGTH / 2),
+                                 .y = body_get_centroid(body_player).y});
+  }
+  if (body_get_centroid(body_player).x - (SPRITE_LENGTH / 2) <= 0) {
+    body_set_centroid(body_player,
+                      (vector_t){.x = (SPRITE_LENGTH / 2),
+                                 .y = body_get_centroid(body_player).y});
+  }
+}
+
+// character movement
+void move_characters(const uint8_t *temp, key_event_type_t pressed,
+                     double time_held, state_t *state) {
+  body_t *girl = scene_get_body(state->grav_player_list, 1);
+  body_t *boy = scene_get_body(state->grav_player_list, 2);
+  vector_t *v_velocity = malloc(sizeof(vector_t));
+  if (temp[4]) { // a
+    left_facing = true;
+    *v_velocity =
+        (vector_t){.x = (-1) * (ACCELERATION), .y = body_get_velocity(girl).y};
+    body_set_velocity(girl, *v_velocity);
+    star_left = true;
+  } else {
+    star_left = false;
+  }
+  if (temp[7]) { // d
+    left_facing = false;
+    *v_velocity =
+        (vector_t){.x = (1) * (ACCELERATION), .y = body_get_velocity(girl).y};
+    body_set_velocity(girl, *v_velocity);
+    star_right = true;
+  } else {
+    star_right = false;
+  }
+  if (temp[26] && up_star == false) {
+
+    for (size_t i = 0; i < scene_bodies(state->grav_player_list); i++) {
+      if (strcmp(body_get_info(scene_get_body(state->grav_player_list, i)),
+                 "platform") == 0 ||
+          strcmp(body_get_info(scene_get_body(state->grav_player_list, i)),
+                 "floor") == 0) {
+        if (find_collision(
+                body_get_vertices(scene_get_body(state->grav_player_list, i)),
+                body_get_vertices(girl))
+                .collided) {
+          if (body_get_centroid(girl).y - CHECK_CENTROID_COL2 >=
+              body_get_centroid(scene_get_body(state->grav_player_list, i)).y) {
+            up_star = true;
+            *v_velocity = JUMP_VEL;
+            body_set_velocity(girl, *v_velocity);
+            Mix_PlayChannel(-1, (Mix_Chunk *)list_get(state->sound_effects, 4),
+                            0);
+          }
+        }
+      }
+    }
+  } else {
+    up_star = false;
+  }
+  if (!temp[4] && !temp[26] && !temp[7]) {
+    body_set_velocity(girl, (vector_t){.x = 0, .y = body_get_velocity(girl).y});
+  }
+  if (temp[22] && left_facing == true) { // shoot left
+    make_star_projectile(state, NEGATIVE_STAR);
+    if (!lost && !won && !welcome) {
+      Mix_PlayChannel(-1, (Mix_Chunk *)list_get(state->sound_effects, 0), 0);
+    }
+  }
+  if (temp[22] && left_facing == false) { // shoot right
+    make_star_projectile(state, POSITIVE_STAR);
+    if (!lost && !won && !welcome) {
+      Mix_PlayChannel(-1, (Mix_Chunk *)list_get(state->sound_effects, 0), 0);
+    }
+  }
+  if (temp[80]) { // left
+    *v_velocity =
+        (vector_t){.x = (-1) * (ACCELERATION), .y = body_get_velocity(boy).y};
+    body_set_velocity(boy, *v_velocity);
+    moon_left = true;
+  } else {
+    moon_left = false;
+  }
+  if (temp[79]) { // right
+    *v_velocity =
+        (vector_t){.x = (1) * (ACCELERATION), .y = body_get_velocity(boy).y};
+    body_set_velocity(boy, *v_velocity);
+    moon_right = true;
+  } else {
+    moon_right = false;
+  }
+  if (temp[82] && up_moon == false) { // up
+
+    for (size_t i = 0; i < scene_bodies(state->grav_player_list); i++) {
+      if (strcmp(body_get_info(scene_get_body(state->grav_player_list, i)),
+                 "platform") == 0 ||
+          strcmp(body_get_info(scene_get_body(state->grav_player_list, i)),
+                 "floor") == 0) {
+        if (find_collision(
+                body_get_vertices(scene_get_body(state->grav_player_list, i)),
+                body_get_vertices(boy))
+                .collided) {
+          if (body_get_centroid(boy).y - CHECK_CENTROID_COL2 >=
+              body_get_centroid(scene_get_body(state->grav_player_list, i)).y) {
+            up_moon = true;
+            *v_velocity = JUMP_VEL;
+            body_set_velocity(boy, *v_velocity);
+            Mix_PlayChannel(-1, (Mix_Chunk *)list_get(state->sound_effects, 4),
+                            0);
+          }
+        }
+      }
+    }
+  } else {
+    up_moon = false;
+  }
+  // temp[81] for down (defend)
+  if (temp[81]) {
+    shield_setter(true);
+  } else {
+    shield_setter(false);
+  }
+  if (!temp[80] && !temp[79] && !temp[82]) {
+    body_set_velocity(boy, (vector_t){.x = 0, .y = body_get_velocity(boy).y});
+  }
+}
+
+// used to reset level
+void free_prev_level(state_t *state) {
+  scene_free(state->grav_player_list);
+  state->time = 0.0;
+}
+
+// lose game scenario
+void lose_game(state_t *state) {
+  if ((strcmp(body_get_info(scene_get_body(state->grav_player_list, 1)),
+              "stargirl") != 0) ||
+      (strcmp(body_get_info(scene_get_body(state->grav_player_list, 2)),
+              "moonboy") != 0)) {
+    lost = true;
+    Mix_PlayChannel(-1, (Mix_Chunk *)list_get(state->sound_effects, 7), 0);
+  }
+}
+
+void level_loader(state_t *state, size_t sizes[4], double player_list[2][2],
+                  double platform_list[30][3], double gemy_list[4][2],
+                  double gemb_list[4][2], double trampoline_list[3][2],
+                  double fan_list[3][2], double invader_list[4][2],
+                  double rocket_list[2][2], double constants[2]) {
+  scene_add_body(state->grav_player_list,
+                 make_planet(500.0, constants[0], constants[1]));
+  scene_add_body(
+      state->grav_player_list,
+      make_player(state, player_list[0][0], player_list[0][1], "stargirl"));
+  scene_add_body(
+      state->grav_player_list,
+      make_player(state, player_list[1][0], player_list[1][1], "moonboy"));
+  for (size_t i = 0; i < sizes[0]; i++) {
+    scene_add_body(state->grav_player_list,
+                   make_platform(platform_list[i][0], platform_list[i][1],
+                                 platform_list[i][2]));
+  }
+  scene_add_body(state->grav_player_list,
+                 make_wall(WINDOW_MIN.x, WINDOW_CENTER.y)); // added
+  scene_add_body(state->grav_player_list,
+                 make_wall(WINDOW_MAX.x, WINDOW_CENTER.y)); // added
+  scene_add_body(state->grav_player_list,
+                 make_floor(state, WINDOW_MAX.y, 0, WINDOW_MAX.x));
+  spawn_blue_gems(state, gemb_list);
+  spawn_yellow_gems(state, gemy_list);
+  for (size_t i = 0; i < sizes[1]; i++) {
+    scene_add_body(
+        state->grav_player_list,
+        make_trampoline(state, trampoline_list[i][0], trampoline_list[i][1]));
+  }
+  for (size_t i = 0; i < sizes[2]; i++) {
+    scene_add_body(state->grav_player_list,
+                   make_fan(fan_list[i][0], fan_list[i][1]));
+  }
+  for (size_t i = 0; i < sizes[3]; i++) {
+    scene_add_body(state->grav_player_list,
+                   make_invader(invader_list[i][0], invader_list[i][1]));
+  }
+  scene_add_body(
+      state->grav_player_list,
+      make_rocket(rocket_list[0][0], rocket_list[0][1], "stargirl_rocket"));
+  scene_add_body(
+      state->grav_player_list,
+      make_rocket(rocket_list[1][0], rocket_list[1][1], "moonboy_rocket"));
+}
+
+char *format_time(double seconds) {
+  double min = 0;
+  double sec = round(seconds);
+  double ten = 0;
+  while (sec >= MIN_SEC) {
+    sec = sec - MIN_SEC;
+    min++;
+  }
+
+  while (sec >= SEC_2) {
+    sec = sec - SEC_2;
+    ten++;
+  }
+
+  char *formatted_time = malloc(sizeof(char));
+
+  sprintf(formatted_time, "%.f:%.f%.f", min, ten, sec);
+
+  return formatted_time;
+}
+
+void create_images(state_t *state) {
+  state->images = list_init(LIST_INIT_SIZE, (void *)SDL_DestroyTexture);
+  list_add(state->images, sdl_create_sprite("assets/moon_boy.png"));
+  list_add(state->images, sdl_create_sprite("assets/star_girl.png"));
+  list_add(state->images, sdl_create_sprite("assets/space_invader.png"));
+  list_add(state->images, sdl_create_sprite("assets/level1.png"));
+  list_add(state->images, sdl_create_sprite("assets/level2.png"));
+  list_add(state->images, sdl_create_sprite("assets/level3.png"));
+  list_add(state->images, sdl_create_sprite("assets/background.png"));
+  list_add(state->images, sdl_create_sprite("assets/blue_gem.png"));
+  list_add(state->images, sdl_create_sprite("assets/yellow_gem.png"));
+  list_add(state->images, sdl_create_sprite("assets/duck1.png"));
+  list_add(state->images, sdl_create_sprite("assets/fan.png"));         // 10
+  list_add(state->images, sdl_create_sprite("assets/trampoline.png"));  // 11
+  list_add(state->images, sdl_create_sprite("assets/moon_left1.png"));  // 12
+  list_add(state->images, sdl_create_sprite("assets/moon_left2.png"));  // 13
+  list_add(state->images, sdl_create_sprite("assets/moon_right1.png")); // 14
+  list_add(state->images, sdl_create_sprite("assets/moon_right2.png")); // 15
+  list_add(state->images,
+           sdl_create_sprite("assets/moon_shield_left1.png")); // 16
+  list_add(state->images,
+           sdl_create_sprite("assets/moon_shield_left2.png")); // 17
+  list_add(state->images,
+           sdl_create_sprite("assets/moon_shield_right1.png")); // 18
+  list_add(state->images,
+           sdl_create_sprite("assets/moon_shield_right2.png"));         // 19
+  list_add(state->images, sdl_create_sprite("assets/star_left1.png"));  // 20
+  list_add(state->images, sdl_create_sprite("assets/star_left2.png"));  // 21
+  list_add(state->images, sdl_create_sprite("assets/star_right1.png")); // 22
+  list_add(state->images, sdl_create_sprite("assets/star_right2.png")); // 23
+
+  list_add(state->images,
+           sdl_create_sprite(
+               "assets/welcome_instructions.png")); // 24 - welcome page
+  list_add(state->images,
+           sdl_create_sprite("assets/win_screen.png")); // 25 - win page
+  list_add(state->images,
+           sdl_create_sprite("assets/lose2.png")); // 26 - lost page
+
+  list_add(state->images,
+           sdl_create_sprite("assets/star_girl_rocket.png"));              // 27
+  list_add(state->images, sdl_create_sprite("assets/moonboy_rocket.png")); // 28
+  list_add(state->images, sdl_create_sprite("assets/platform.png"));       // 29
+
+  list_add(state->images,
+           sdl_create_sprite("assets/star_projectile.png")); // 30
+  list_add(state->images,
+           sdl_create_sprite("assets/invader_projectile.png")); // 31
+
+  list_add(state->images, sdl_create_sprite("assets/background2.png")); // 32
+  list_add(state->images, sdl_create_sprite("assets/background3.png")); // 33
+
+  state->texts = list_init(180, (void *)SDL_DestroyTexture);
+
+  for (double i = 1; i < BEST_TIME; i++) {
+    list_add(state->texts, sdl_create_text(format_time(i), "assets/times.ttf",
+                                           FONT_SIZE, GREEN_TXT));
+  }
+  for (double i = BEST_TIME; i < MED_TIME; i++) {
+    list_add(state->texts, sdl_create_text(format_time(i), "assets/times.ttf",
+                                           FONT_SIZE, YELLOW_TXT));
+  }
+  for (double i = MED_TIME; i < BAD_TIME; i++) {
+    list_add(state->texts, sdl_create_text(format_time(i), "assets/times.ttf",
+                                           FONT_SIZE, RED_TXT));
+  }
+}
+
+void create_music(state_t *state) {
+  state->music = list_init(1, (void *)Mix_FreeChunk);
+  list_add(state->music,
+           Mix_LoadWAV("assets/background_music.wav")); // background music
+
+  state->sound_effects = list_init(LIST_INIT_SIZE, (void *)Mix_FreeChunk);
+  list_add(state->sound_effects,
+           Mix_LoadWAV("assets/shoot.wav")); // 0 - star
+  list_add(state->sound_effects,
+           Mix_LoadWAV("assets/shieldsound.wav")); // 1 - moon
+  list_add(state->sound_effects,
+           Mix_LoadWAV("assets/rocket_sound.wav")); // 2 - rockets
+  list_add(state->sound_effects,
+           Mix_LoadWAV("assets/invaderkilled.wav")); // 3 - invaders
+  list_add(state->sound_effects,
+           Mix_LoadWAV("assets/jump.wav")); // 4 - jump
+  list_add(state->sound_effects,
+           Mix_LoadWAV("assets/boing.wav")); // 5 - trampoline
+  list_add(state->sound_effects,
+           Mix_LoadWAV("assets/jump.wav")); // 6 - fan
+  list_add(state->sound_effects,
+           Mix_LoadWAV("assets/lose_sound.wav")); // 7 - lose
+}
+
+void play_shield_sound_effect(list_t *sound_effects) {
+  if (shield_sound_getter()) {
+    Mix_PlayChannel(-1, (Mix_Chunk *)list_get(sound_effects, 1), 0);
+    shield_sound_setter(false);
+  }
+}
+
+void play_invader_sound_effect(list_t *sound_effects) {
+  if (invader_sound_getter()) {
+    Mix_PlayChannel(-1, (Mix_Chunk *)list_get(sound_effects, 3), 0);
+    invader_sound_setter(false);
+  }
+}
+
+void play_tramp_sound_effect(list_t *sound_effects) {
+  if (tramp_sound_getter()) {
+    Mix_PlayChannel(-1, (Mix_Chunk *)list_get(sound_effects, 5), 0);
+    tramp_sound_setter(false);
+  }
+}
+
+double gem_count(state_t *state) {
+  double counter = 0;
+
+  for (size_t i = 0; i < scene_bodies(state->grav_player_list); i++) {
+    if ((strcmp(body_get_info(scene_get_body(state->grav_player_list, i)),
+                "blue_gem") == 0) ||
+        (strcmp(body_get_info(scene_get_body(state->grav_player_list, i)),
+                "yellow_gem") == 0)) {
+      counter++;
+    }
+  }
+  double collected_gems = 8 - counter;
+
+  return collected_gems;
+}
+
+char *final_score(state_t *state) {
+  double gems_collected = gem_count(state);
+  double score;
+
+  if (won_time < BEST_TIME) {
+    score = gems_collected * GEM_PTS + BEST_TIME_SCORE;
+  } else if (won_time < MED_TIME) {
+    score = gems_collected * GEM_PTS + MED_TIME_SCORE;
+  } else if (won_time < BAD_TIME) {
+    score = gems_collected * GEM_PTS + BAD_TIME_SCORE;
+  } else {
+    score = gems_collected * GEM_PTS;
+  }
+
+  char *final_score = malloc(sizeof(char));
+
+  sprintf(final_score, "%.f%%", score);
+  return final_score;
+}
+
+void move_mouse(double x, double y, state_t *state) {
+  // if it goes to move_mouse, then we already know that the mouse has been
+  // clicked. we now only need to check to see if the mouse is clicked within
+  // the button.
+  for (size_t i = 0; i < scene_bodies(state->button_list); i++) {
+    body_t *button = scene_get_body(state->button_list, i);
+    vector_t button_min =
+        (vector_t){.x = body_get_centroid(button).x - BUTTON_LENGTH / 2,
+                   .y = body_get_centroid(button).y - BUTTON_HEIGHT / 2};
+    vector_t button_max =
+        (vector_t){.x = body_get_centroid(button).x + BUTTON_LENGTH / 2,
+                   .y = body_get_centroid(button).y + BUTTON_HEIGHT / 2};
+    if (button_min.x <= x && button_max.x >= x) {
+      if (button_min.y <= y && button_max.y >= y) {
+        if (strcmp(body_get_info(button), "level_1") == 0) {
+          free_prev_level(state);
+          state->grav_player_list = scene_init();
+          // state->platforms_list = scene_init();
+          level_loader(state, level1_sizes, level1_player_list,
+                       level1_platform_list, level1_gemy_list, level1_gemb_list,
+                       level1_trampoline_list, level1_fan_list,
+                       level1_invader_list, level1_rocket_list,
+                       level1_constants);
+          curr_level_1 = true;
+          curr_level_2 = false;
+          curr_level_3 = false;
+        } else if (strcmp(body_get_info(button), "level_2") == 0) {
+          free_prev_level(state);
+          state->grav_player_list = scene_init();
+          //  state->platforms_list = scene_init();
+          level_loader(state, level2_sizes, level2_player_list,
+                       level2_platform_list, level2_gemy_list, level2_gemb_list,
+                       level2_trampoline_list, level2_fan_list,
+                       level2_invader_list, level2_rocket_list,
+                       level2_constants);
+          curr_level_1 = false;
+          curr_level_2 = true;
+          curr_level_3 = false;
+        } else if (strcmp(body_get_info(button), "level_3") == 0) {
+          free_prev_level(state);
+          state->grav_player_list = scene_init();
+          // state->platforms_list = scene_init();
+          level_loader(state, level3_sizes, level3_player_list,
+                       level3_platform_list, level3_gemy_list, level3_gemb_list,
+                       level3_trampoline_list, level3_fan_list,
+                       level3_invader_list, level3_rocket_list,
+                       level3_constants);
+          curr_level_1 = false;
+          curr_level_2 = false;
+          curr_level_3 = true;
+        }
+        lost = false;
+        won = false;
+        welcome = false;
+      }
+    }
+  }
+}
+
+state_t *emscripten_init() {
+  state_t *state = malloc(sizeof(state_t));
+  state->grav_player_list = scene_init();
+  // state->platforms_list = scene_init();
+  state->button_list = scene_init();
+  state->time = 0.0;
+  state->counter = 0;
+
+  sdl_init(WINDOW_MIN, WINDOW_MAX);
+
+  level_loader(state, level1_sizes, level1_player_list, level1_platform_list,
+               level1_gemy_list, level1_gemb_list, level1_trampoline_list,
+               level1_fan_list, level1_invader_list, level1_rocket_list,
+               level1_constants);
+
+  create_images(state);
+  create_music(state);
+
+  scene_add_body(state->button_list,
+                 make_button(WINDOW_BODY_MAX.x,
+                             BUTTON_Y_INC + BUTTON_Y_MULT * 1, "level_1"));
+  scene_add_body(state->button_list,
+                 make_button(WINDOW_BODY_MAX.x,
+                             BUTTON_Y_INC + BUTTON_Y_MULT * 2, "level_2"));
+  scene_add_body(state->button_list,
+                 make_button(WINDOW_BODY_MAX.x,
+                             BUTTON_Y_INC + BUTTON_Y_MULT * 3, "level_3"));
+
+  sdl_on_key((key_handler_t)move_characters);
+  sdl_on_mouse(move_mouse);
+
+  background_music_channel =
+      Mix_PlayChannel(-1, (Mix_Chunk *)list_get(state->music, 0), 0);
+
+  return state;
+}
+
+void reset_collision(state_t *state, body_t *body_player, body_t *platform) {
+  vector_t vel = (vector_t){.x = body_get_velocity(body_player).x, .y = 0};
+  body_set_velocity(body_player, vel);
+  // set flag for gravity removal
+  body_set_grav(body_player, true);
+
+  vector_t new_cen = (vector_t){.x = body_get_centroid(body_player).x,
+                                .y = body_get_centroid(platform).y +
+                                     PLAT_HEIGHT / 2 + SPRITE_HEIGHT / 2 - 2};
+  body_set_centroid(body_player, new_cen);
+  vector_t vel2 = (vector_t){.x = 0, .y = 0};
+  if (body_get_prev_collision(platform) == false) {
+    body_set_velocity(body_player, vel2);
+  }
+  body_set_prev_collision(platform, true);
+}
+
+void start_grav(state_t *state, body_t *body_player, body_t *platform) {
+  body_set_grav(body_player, false);
+  vector_t vel =
+      (vector_t){.x = body_get_velocity(body_player).x, .y = START_GRAV_Y_VEL};
+  body_set_velocity(body_player, vel);
+  body_set_prev_collision(platform, false);
+}
+
+void out_boundary_platform(state_t *state, body_t *body_player,
+                           body_t *platform, bool key_up) {
+  if (key_up && body_get_prev_collision(platform)) {
+    start_grav(state, body_player, platform);
+  } else {
+    // if its colliding and its falling (colliding from the side)
+    body_set_grav(body_player, false);
+    body_set_prev_collision(platform, false);
+    if (body_get_centroid(body_player).x - (SPRITE_LENGTH / 2) <
+            body_get_centroid(platform).x + PLAT_LENGTH / 2 &&
+        body_get_centroid(body_player).x + (SPRITE_LENGTH / 2) >
+            body_get_centroid(platform).x + PLAT_LENGTH / 2) {
+      vector_t new_pos = (vector_t){.x = body_get_centroid(body_player).x + 2,
+                                    .y = body_get_centroid(body_player).y};
+      body_set_centroid(body_player, new_pos);
+      vector_t new_vel =
+          (vector_t){.x = 0, .y = body_get_velocity(body_player).y};
+      body_set_velocity(body_player, new_vel);
+    }
+    if (body_get_centroid(body_player).x + (SPRITE_LENGTH / 2) >
+            body_get_centroid(platform).x - PLAT_LENGTH / 2 &&
+        body_get_centroid(body_player).x - (SPRITE_LENGTH / 2) <
+            body_get_centroid(platform).x - PLAT_LENGTH / 2) {
+      vector_t new_pos = (vector_t){.x = body_get_centroid(body_player).x - 2,
+                                    .y = body_get_centroid(body_player).y};
+      body_set_centroid(body_player, new_pos);
+      vector_t new_vel =
+          (vector_t){.x = 0, .y = body_get_velocity(body_player).y};
+      body_set_velocity(body_player, new_vel);
+    }
+  }
+}
+
+void in_boundary_platform(state_t *state, body_t *body_player, body_t *platform,
+                          bool key_up) {
+  if (body_get_centroid(body_player).y < body_get_centroid(platform).y) {
+    vector_t new_pos = (vector_t){body_get_centroid(body_player).x,
+                                  body_get_centroid(body_player).y};
+    body_set_centroid(body_player, new_pos);
+    vector_t vel = (vector_t){.x = body_get_velocity(body_player).x, .y = -2};
+    body_set_velocity(body_player, vel);
+  } else if (key_up && body_get_prev_collision(platform)) {
+    body_set_grav(body_player, false);
+    body_set_prev_collision(platform, false);
+  } else {
+    reset_collision(state, body_player, platform);
+  }
+}
+
+void check_collision_with_ground(state_t *state, body_t *body_player,
+                                 body_t *platform, bool key_up) {
+  // make new flag for prev collision, if true and find collision and holding
+  // key up, dont reset collision if find collision otherwise reset collision
+  if (find_collision(body_get_vertices(body_player),
+                     body_get_vertices(platform))
+          .collided) {
+    // checks if is the floor
+    if (strcmp(body_get_info(platform), "floor") == 0) {
+      in_boundary_platform(state, body_player, platform, key_up);
+    } else {
+      // checks if is a regular platform
+      // if in boundary of platform
+      if (body_get_centroid(body_player).x - CHECK_CENTROID_COL <
+              body_get_centroid(platform).x + PLAT_LENGTH / 2 &&
+          body_get_centroid(body_player).x + CHECK_CENTROID_COL >
+              body_get_centroid(platform).x - PLAT_LENGTH / 2) {
+        if (strcmp(body_get_info(platform), "platform") == 0) {
+          in_boundary_platform(state, body_player, platform, key_up);
+        }
+      } else {
+        // if out of boundary of platform
+        out_boundary_platform(state, body_player, platform, key_up);
+      }
+    }
+  }
+}
+
+void check_fan(state_t *state) {
+  body_t *player1 = scene_get_body(state->grav_player_list, 1);
+  body_t *player2 = scene_get_body(state->grav_player_list, 2);
+
+  vector_t center_player1 = body_get_centroid(player1);
+  vector_t center_player2 = body_get_centroid(player2);
+
+  for (size_t i = 0; i < scene_bodies(state->grav_player_list); i++) {
+    if (strcmp(body_get_info(scene_get_body(state->grav_player_list, i)),
+               "fan") == 0) {
+      body_t *fan = scene_get_body(state->grav_player_list, i);
+      vector_t center_fan = body_get_centroid(fan);
+
+      double k = 10000;
+
+      // check that if the player's velocity is great enough to overcome the
+      // force of the fan, it does not go through the fan
+      if (((center_player1.x + (SPRITE_LENGTH / 2) >=
+                center_fan.x - (PLAT_LENGTH / 2) &&
+            center_player1.x + (SPRITE_LENGTH / 2) <=
+                center_fan.x + (PLAT_LENGTH / 2)) ||
+           (center_player1.x - (SPRITE_LENGTH / 2) >=
+                center_fan.x - (PLAT_LENGTH / 2) &&
+            center_player1.x - (SPRITE_LENGTH / 2) <=
+                center_fan.x + (PLAT_LENGTH / 2))) &&
+          center_player1.y - (SPRITE_HEIGHT / 2) <=
+              center_fan.y + (PLAT_HEIGHT / 2) &&
+          center_player1.y - (SPRITE_HEIGHT / 2) >=
+              center_fan.y - (PLAT_HEIGHT / 2)) {
+        body_set_centroid(player1, (vector_t){body_get_centroid(player1).x,
+                                              center_fan.y + (PLAT_HEIGHT / 2) +
+                                                  (SPRITE_HEIGHT / 2)});
+        body_set_velocity(player1,
+                          (vector_t){body_get_velocity(player1).x, 0.0});
+      }
+      if (((center_player2.x + (SPRITE_LENGTH / 2) >=
+                center_fan.x - (PLAT_LENGTH / 2) &&
+            center_player2.x + (SPRITE_LENGTH / 2) <=
+                center_fan.x + (PLAT_LENGTH / 2)) ||
+           (center_player2.x - (SPRITE_LENGTH / 2) >=
+                center_fan.x - (PLAT_LENGTH / 2) &&
+            center_player2.x - (SPRITE_LENGTH / 2) <=
+                center_fan.x + (PLAT_LENGTH / 2))) &&
+          center_player2.y - (SPRITE_HEIGHT / 2) <=
+              center_fan.y + (PLAT_HEIGHT / 2) &&
+          center_player2.y - (SPRITE_HEIGHT / 2) >=
+              center_fan.y - (PLAT_HEIGHT / 2)) {
+        body_set_centroid(player2, (vector_t){body_get_centroid(player2).x,
+                                              center_fan.y + (PLAT_HEIGHT / 2) +
+                                                  (SPRITE_HEIGHT / 2)});
+        body_set_velocity(player2,
+                          (vector_t){body_get_velocity(player2).x, 0.0});
+      }
+
+      // apply fan force
+      if (((center_player1.x + (SPRITE_LENGTH / 2) >=
+                center_fan.x - (PLAT_LENGTH / 2) &&
+            center_player1.x + (SPRITE_LENGTH / 2) <=
+                center_fan.x + (PLAT_LENGTH / 2)) ||
+           (center_player1.x - (SPRITE_LENGTH / 2) >=
+                center_fan.x - (PLAT_LENGTH / 2) &&
+            center_player1.x - (SPRITE_LENGTH / 2) <=
+                center_fan.x + (PLAT_LENGTH / 2))) &&
+          center_player1.y - (SPRITE_LENGTH / 2) >=
+              center_fan.y + (PLAT_HEIGHT / 2)) {
+        // Calculate  the distance between the object and the fan's center
+        double dist_y = center_player1.y - center_fan.y;
+        double fan_force = k / dist_y;
+        body_add_impulse(player1, (vector_t){0, fan_force});
+        // Mix_PlayChannel(-1, (Mix_Chunk *)list_get(state->sound_effects, 6),
+        // 0);
+      }
+
+      if (((center_player2.x + (SPRITE_LENGTH / 2) >=
+                center_fan.x - (PLAT_LENGTH / 2) &&
+            center_player2.x + (SPRITE_LENGTH / 2) <=
+                center_fan.x + (PLAT_LENGTH / 2)) ||
+           (center_player2.x - (SPRITE_LENGTH / 2) >=
+                center_fan.x - (PLAT_LENGTH / 2) &&
+            center_player2.x - (SPRITE_LENGTH / 2) <=
+                center_fan.x + (PLAT_LENGTH / 2))) &&
+          center_player2.y - (SPRITE_LENGTH / 2) >=
+              center_fan.y + (PLAT_HEIGHT / 2)) {
+        // Calculate  the distance between the object and the fan's center
+        double dist_y = center_player2.y - center_fan.y;
+        double fan_force = k / dist_y;
+        body_add_impulse(player2, (vector_t){0, fan_force});
+        // Mix_PlayChannel(-1, (Mix_Chunk *)list_get(sound_effects, 6), 0);
+      }
+    }
+  }
+}
+
+// win game scenario
+void won_game(state_t *state) {
+
+  body_t *player1 = scene_get_body(state->grav_player_list, 1);
+  body_t *player2 = scene_get_body(state->grav_player_list, 2);
+
+  vector_t center_player1 = body_get_centroid(player1);
+  vector_t center_player2 = body_get_centroid(player2);
+
+  vector_t center_rocket1 = VEC_ZERO;
+  vector_t center_rocket2 = VEC_ZERO;
+  body_t *rocket1 = NULL;
+  body_t *rocket2 = NULL;
+
+  for (size_t i = 0; i < scene_bodies(state->grav_player_list); i++) {
+    if (strcmp(body_get_info(scene_get_body(state->grav_player_list, i)),
+               "stargirl_rocket") == 0) {
+      rocket1 = scene_get_body(state->grav_player_list, i);
+      center_rocket1 = body_get_centroid(rocket1);
+    }
+    if (strcmp(body_get_info(scene_get_body(state->grav_player_list, i)),
+               "moonboy_rocket") == 0) {
+      rocket2 = scene_get_body(state->grav_player_list, i);
+      center_rocket2 = body_get_centroid(rocket2);
+    }
+  }
+
+  if (center_player1.x > center_rocket1.x - (ROCKET_LEN / 2) &&
+      center_player1.x < center_rocket1.x + (ROCKET_LEN / 2) &&
+      center_player1.y > center_rocket1.y - (ROCKET_HT / 2) &&
+      center_player1.y < center_rocket1.y + (ROCKET_HT / 2) &&
+
+      center_player2.x > center_rocket2.x - (ROCKET_LEN / 2) &&
+      center_player2.x < center_rocket2.x + (ROCKET_LEN / 2) &&
+      center_player2.y > center_rocket2.y - (ROCKET_HT / 2) &&
+      center_player2.y < center_rocket2.y + (ROCKET_HT / 2)) {
+
+    won_time = state->time;
+
+    body_add_impulse(rocket1, ROCKET_IMPULSE);
+    body_add_impulse(rocket2, ROCKET_IMPULSE);
+
+    Mix_PlayChannel(-1, (Mix_Chunk *)list_get(state->sound_effects, 2), 0);
+
+    won = true;
+  }
+}
+
+void draw_sprites(state_t *state) {
+
+  if (state->counter % 10 == 0) {
+    if (moon_run) {
+      moon_run = false;
+    } else if (!moon_run) {
+      moon_run = true;
+    }
+
+    if (star_run) {
+      star_run = false;
+    } else if (!star_run) {
+      star_run = true;
+    }
+  }
+
+  for (size_t i = 0; i < scene_bodies(state->grav_player_list); i++) {
+    body_t *curr_body = scene_get_body(state->grav_player_list, i);
+    vector_t curr_center = body_get_centroid(curr_body);
+    double old_y = curr_center.y;
+    curr_center.y = old_y - (2 * (old_y - WINDOW_CENTER.y));
+    char *curr_info = (char *)body_get_info(curr_body);
+
+    if (strcmp(curr_info, "blue_gem") == 0) {
+      sdl_draw_sprite((SDL_Texture *)list_get(state->images, 7), curr_center,
+                      GEM_DIM);
+    }
+    if (strcmp(curr_info, "yellow_gem") == 0) {
+      sdl_draw_sprite((SDL_Texture *)list_get(state->images, 8), curr_center,
+                      GEM_DIM);
+    }
+    if (strcmp(curr_info, "invader") == 0) {
+      sdl_draw_sprite((SDL_Texture *)list_get(state->images, 2), curr_center,
+                      (vector_t){SPRITE_LENGTH, SPRITE_INV_HEIGHT});
+    }
+    if (strcmp(curr_info, "fan") == 0) {
+      sdl_draw_sprite((SDL_Texture *)list_get(state->images, 10), curr_center,
+                      (vector_t){FAN_LENGTH, FAN_HEIGHT});
+    }
+    if (strcmp(curr_info, "trampoline") == 0) {
+      sdl_draw_sprite((SDL_Texture *)list_get(state->images, 11), curr_center,
+                      (vector_t){TRAMP_LENGTH, TRAMP_HEIGHT});
+    }
+    if (strcmp(curr_info, "stargirl_rocket") == 0) {
+      sdl_draw_sprite((SDL_Texture *)list_get(state->images, 27), curr_center,
+                      (vector_t){ROCKET_LEN, ROCKET_HT});
+    }
+    if (strcmp(curr_info, "moonboy_rocket") == 0) {
+      sdl_draw_sprite((SDL_Texture *)list_get(state->images, 28), curr_center,
+                      (vector_t){ROCKET_LEN, ROCKET_HT});
+    }
+    if (strcmp(curr_info, "platform") == 0) {
+      sdl_draw_sprite((SDL_Texture *)list_get(state->images, 29), curr_center,
+                      (vector_t){PLAT_LENGTH, PLAT_HEIGHT});
+    }
+    if (strcmp(curr_info, "star projectile") == 0) {
+      sdl_draw_sprite((SDL_Texture *)list_get(state->images, 30), curr_center,
+                      (vector_t){PROJECTILE_LENGTH, PROJECTILE_HEIGHT});
+    }
+    if (strcmp(curr_info, "projectile") == 0) {
+      sdl_draw_sprite((SDL_Texture *)list_get(state->images, 31), curr_center,
+                      (vector_t){PROJECTILE_LENGTH, PROJECTILE_HEIGHT});
+    }
+  }
+  if (!won) {
+    // draw moon boy
+    vector_t center_of_sprite_moon =
+        body_get_centroid(scene_get_body(state->grav_player_list, 2));
+    double old_y = center_of_sprite_moon.y;
+    center_of_sprite_moon.y = old_y - (2 * (old_y - WINDOW_CENTER.y));
+
+    if (moon_run && moon_left && shield_getter()) {
+      sdl_draw_sprite((SDL_Texture *)list_get(state->images, 16),
+                      center_of_sprite_moon,
+                      (vector_t){SPRITE_LENGTH, SPRITE_HEIGHT});
+    } else if (!moon_run && moon_left && shield_getter()) {
+      sdl_draw_sprite((SDL_Texture *)list_get(state->images, 17),
+                      center_of_sprite_moon,
+                      (vector_t){SPRITE_LENGTH, SPRITE_HEIGHT});
+    } else if (moon_run && moon_right && shield_getter()) {
+      sdl_draw_sprite((SDL_Texture *)list_get(state->images, 18),
+                      center_of_sprite_moon,
+                      (vector_t){SPRITE_LENGTH, SPRITE_HEIGHT});
+    } else if (!moon_run && moon_right && shield_getter()) {
+      sdl_draw_sprite((SDL_Texture *)list_get(state->images, 19),
+                      center_of_sprite_moon,
+                      (vector_t){SPRITE_LENGTH, SPRITE_HEIGHT});
+    } else if (moon_run && moon_left) {
+      sdl_draw_sprite((SDL_Texture *)list_get(state->images, 12),
+                      center_of_sprite_moon,
+                      (vector_t){SPRITE_LENGTH, SPRITE_HEIGHT});
+    } else if (!moon_run && moon_left) {
+      sdl_draw_sprite((SDL_Texture *)list_get(state->images, 13),
+                      center_of_sprite_moon,
+                      (vector_t){SPRITE_LENGTH, SPRITE_HEIGHT});
+    } else if (moon_run && moon_right) {
+      sdl_draw_sprite((SDL_Texture *)list_get(state->images, 14),
+                      center_of_sprite_moon,
+                      (vector_t){SPRITE_LENGTH, SPRITE_HEIGHT});
+    } else if (!moon_run && moon_right) {
+      sdl_draw_sprite((SDL_Texture *)list_get(state->images, 15),
+                      center_of_sprite_moon,
+                      (vector_t){SPRITE_LENGTH, SPRITE_HEIGHT});
+    } else if (shield_getter()) {
+      sdl_draw_sprite((SDL_Texture *)list_get(state->images, 9),
+                      center_of_sprite_moon,
+                      (vector_t){SPRITE_LENGTH, SPRITE_HEIGHT});
+    } else {
+      sdl_draw_sprite((SDL_Texture *)list_get(state->images, 0),
+                      center_of_sprite_moon,
+                      (vector_t){SPRITE_LENGTH, SPRITE_HEIGHT});
+    }
+
+    vector_t center_of_sprite_star =
+        body_get_centroid(scene_get_body(state->grav_player_list, 1));
+    double old_y2 = center_of_sprite_star.y;
+    center_of_sprite_star.y = old_y2 - (2 * (old_y2 - WINDOW_CENTER.y));
+
+    if (star_run && star_left) {
+      sdl_draw_sprite((SDL_Texture *)list_get(state->images, 20),
+                      center_of_sprite_star,
+                      (vector_t){SPRITE_LENGTH, SPRITE_HEIGHT});
+    } else if (!star_run && star_left) {
+      sdl_draw_sprite((SDL_Texture *)list_get(state->images, 21),
+                      center_of_sprite_star,
+                      (vector_t){SPRITE_LENGTH, SPRITE_HEIGHT});
+    } else if (star_run && star_right) {
+      sdl_draw_sprite((SDL_Texture *)list_get(state->images, 22),
+                      center_of_sprite_star,
+                      (vector_t){SPRITE_LENGTH, SPRITE_HEIGHT});
+    } else if (!star_run && star_right) {
+      sdl_draw_sprite((SDL_Texture *)list_get(state->images, 23),
+                      center_of_sprite_star,
+                      (vector_t){SPRITE_LENGTH, SPRITE_HEIGHT});
+    } else {
+      sdl_draw_sprite((SDL_Texture *)list_get(state->images, 1),
+                      center_of_sprite_star,
+                      (vector_t){SPRITE_LENGTH, SPRITE_HEIGHT});
+    }
+  }
+  if (won && state->time > won_time + 3) {
+    sdl_draw_sprite((SDL_Texture *)list_get(state->images, 25), WINDOW_CENTER,
+                    WINDOW_MAX);
+
+    char *final_gems = malloc(sizeof(char));
+
+    sprintf(final_gems, "%.f", gem_count(state));
+
+    sdl_render_text(sdl_create_text("gems collected: ", "assets/times.ttf",
+                                    FONT_SIZE, WHITE_TXT),
+                    TEXT1_X, TEXT_INLINE1, TEXT1_WIDTH, TEXT_HT);
+
+    sdl_render_text(
+        sdl_create_text(final_gems, "assets/times.ttf", FONT_SIZE, WHITE_TXT),
+        TEXT2_X, TEXT_INLINE1, TEXT2_WIDTH, TEXT_HT);
+
+    sdl_render_text(sdl_create_text("final score: ", "assets/times.ttf",
+                                    FONT_SIZE, WHITE_TXT),
+                    TEXT3_X, TEXT_INLINE2, TEXT3_WIDTH, TEXT_HT);
+
+    sdl_render_text(sdl_create_text(final_score(state), "assets/times.ttf",
+                                    FONT_SIZE, WHITE_TXT),
+                    TEXT4_X, TEXT_INLINE2, TEXT4_WIDTH, TEXT_HT);
+  }
+  if (lost) {
+    sdl_draw_sprite((SDL_Texture *)list_get(state->images, 26), WINDOW_CENTER,
+                    WINDOW_MAX);
+  }
+  if (welcome) {
+    sdl_draw_sprite((SDL_Texture *)list_get(state->images, 24), WINDOW_CENTER,
+                    WINDOW_MAX);
+  }
+
+  vector_t center_of_button_1 =
+      body_get_centroid(scene_get_body(state->button_list, 0));
+  sdl_draw_sprite((SDL_Texture *)list_get(state->images, 3), center_of_button_1,
+                  (vector_t){BUTTON_LENGTH, BUTTON_HEIGHT});
+
+  vector_t center_of_button_2 =
+      body_get_centroid(scene_get_body(state->button_list, 1));
+  sdl_draw_sprite((SDL_Texture *)list_get(state->images, 4), center_of_button_2,
+                  (vector_t){BUTTON_LENGTH, BUTTON_HEIGHT});
+
+  vector_t center_of_button_3 =
+      body_get_centroid(scene_get_body(state->button_list, 2));
+  sdl_draw_sprite((SDL_Texture *)list_get(state->images, 5), center_of_button_3,
+                  (vector_t){BUTTON_LENGTH, BUTTON_HEIGHT});
+}
+
+void emscripten_main(state_t *state) {
+  sdl_clear();
+  double dt = time_since_last_tick();
+  state->time = state->time + dt;
+  state->counter = state->counter + 1;
+
+  bool test;
+  for (size_t i = 0; i < scene_bodies(state->grav_player_list); i++) {
+    if (strcmp(body_get_info(scene_get_body(state->grav_player_list, i)),
+               "platform") == 0 ||
+        strcmp(body_get_info(scene_get_body(state->grav_player_list, i)),
+               "floor") == 0 ||
+        strcmp(body_get_info(scene_get_body(state->grav_player_list, i)),
+               "fan") == 0) {
+      check_collision_with_ground(
+          state, scene_get_body(state->grav_player_list, 1),
+          scene_get_body(state->grav_player_list, i), up_star);
+      check_collision_with_ground(
+          state, scene_get_body(state->grav_player_list, 2),
+          scene_get_body(state->grav_player_list, i), up_moon);
+
+      if (find_collision(
+              body_get_vertices(scene_get_body(state->grav_player_list, 2)),
+              body_get_vertices(scene_get_body(state->grav_player_list, i)))
+              .collided) {
+        test = false;
+      }
+    }
+  }
+  if (test) {
+    body_set_grav(scene_get_body(state->grav_player_list, 2), false);
+  }
+
+  if (state->counter % CREATE_PROJ == 0) {
+    make_projectile(state);
+  }
+
+  // make background
+  if (curr_level_1) {
+    sdl_draw_sprite((SDL_Texture *)list_get(state->images, SDL_TEXTURE_IDX),
+                    WINDOW_CENTER, WINDOW_MAX);
+  } else if (curr_level_2) {
+    sdl_draw_sprite((SDL_Texture *)list_get(state->images, 32), WINDOW_CENTER,
+                    WINDOW_MAX);
+  } else if (curr_level_3) {
+    sdl_draw_sprite((SDL_Texture *)list_get(state->images, 33), WINDOW_CENTER,
+                    WINDOW_MAX);
+  }
+
+  hitting_sides(state, scene_get_body(state->grav_player_list, 1));
+  hitting_sides(state, scene_get_body(state->grav_player_list, 2));
+  check_fan(state);
+
+  scene_tick(state->grav_player_list, dt);
+
+  lose_game(state);
+
+  scene_tick(state->button_list, dt);
+
+  size_t idx = round(state->time);
+  sdl_render_text(list_get(state->texts, idx), SDL_TEXT_X, SDL_TEXT_Y,
+                  SDL_WIDTH, SDL_HEIGHT);
+
+  draw_sprites(state);
+  won_game(state);
+
+  if (Mix_Playing(background_music_channel) == 0) {
+    background_music_channel =
+        Mix_PlayChannel(-1, (Mix_Chunk *)list_get(state->music, 0), 0);
+  }
+
+  play_shield_sound_effect(state->sound_effects);
+  play_invader_sound_effect(state->sound_effects);
+  play_tramp_sound_effect(state->sound_effects);
+
+  sdl_show();
+}
+void emscripten_free(state_t *state) {
+  scene_free(state->grav_player_list);
+  scene_free(state->button_list);
+  list_free(state->images);
+  list_free(state->texts);
+  list_free(state->music);
+  list_free(state->sound_effects);
+  free(state);
+}
